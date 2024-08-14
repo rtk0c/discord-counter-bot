@@ -66,7 +66,7 @@ async def on_message(message):
   else:
     return
 
-  if not VARNAME_REGEX.match(varname):
+  if not VARNAME_REGEX.fullmatch(varname):
     return
 
   curr_value = var_get(guild_id, varname)
