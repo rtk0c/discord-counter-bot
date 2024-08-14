@@ -57,12 +57,12 @@ async def on_message(message):
   guild_id = message.guild.id
 
   c = message.content
-  if c.startswith('++'):
+  if (varname := c.removeprefix('++')) != c or \
+     (varname := c.removesuffix('++')) != c:
     delta = 1
-    varname = c[2:]
-  elif c.startswith('--'):
+  elif (varname := c.removeprefix('--')) != c or \
+       (varname := c.removesuffix('--')) != c:
     delta = -1
-    varname = c[2:]
   else:
     return
 
