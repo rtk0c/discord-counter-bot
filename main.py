@@ -15,8 +15,7 @@ client = discord.Client(intents=intents)
 async def on_ready():
   pass
 
-# Additionally allow dashes, because that's convenient
-VARNAME_REGEX = re.compile(r"[a-zA-Z0-9_-]+")
+VARNAME_REGEX = re.compile(r"[a-zA-Z0-9_]+")
 
 db = sqlite3.connect('bot.db', autocommit=False)
 db_cur = db.cursor()
