@@ -42,47 +42,34 @@ def var_set(guild_id: int, varname: str, value: int) -> None:
     r"INSERT OR REPLACE INTO variables(guild_id, name, value) VALUES (?, ?, ?)",
     (guild_id, varname, value))
   db.commit()
+  print(f"var_set({guild_id}, '{varname}', {value})")
+
+def var_search(guild_id: int, start_rowid: int, varname_pattern: str) -> list[(str, int)]:
+  db_cur.execute(
+    r"SELECT rowid, name, value FROM variables WHERE rowid >= ? AND guild_id = ? AND name LIKE ? LIMIT 25",
+    (start_rowid, guild_id, f"%{varname_pattern}%"))
+  res = db_cur.fetchall()
+  print(f"var_search({guild_id}, {start_rowid}, '{varname_pattern}') = ", res)
+  return res
 
 @tree.command(
     name='list',
-    description='List all counters present on this server',
+    description='Search counters on this server matching the pattern.',
     guild=None, # Global slash command
 )
 async def list(intr: discord.Interaction, search_term: str):
-    await intr.response.send_message(search_term)
-    return
-    current_page = 0
-    embed = generate_embed(current_page)
-    
-    message = await ctx.send(embed=embed)
+  search_res = var_search(intr.guild_id, 0, search_term)
+  if len(search_res) > 0:
+      await intr.response.send_message(embed=generate_embed(search_res, 0), ephemeral=True)
+  else:
+      await intr.response.send_message('No search results', ephemeral=True)
 
-    while True:
-        try:
-            reaction, user = await client.wait_for('reaction_add', check=lambda r, u: u == ctx.author 
-and str(r.emoji) in ['<<', '>>'], timeout=60.0)
-        except asyncio.TimeoutError:
-            break
-
-        if str(reaction.emoji) == '<<':
-            current_page = max(current_page - 1, 0)
-        elif str(reaction.emoji) == '>>':
-            current_page = min(current_page + 1, len(numbers_list) // NUMBERS_PER_PAGE)
-
-        await message.edit(embed=generate_embed(current_page))
-        await reaction.remove(user)
-
-def generate_embed(page):
-    start_index = page * NUMBERS_PER_PAGE
-    end_index = start_index + NUMBERS_PER_PAGE
-
-    current_numbers = numbers_list[start_index:end_index]
-    embed = discord.Embed(title=f"Page {page + 1}", description="\n".join(map(str, 
-current_numbers)))
-    if page > 0:
-        embed.add_field(name="<<", value="Previous Page", inline=False)
-    if end_index < len(numbers_list):
-        embed.add_field(name=">>", value="Next Page", inline=False)
-
+def generate_embed(search_res, page: int):
+    (first_rowid, _, _)= search_res[0]
+    (last_rowid, _, _)= search_res[-1]
+    embed = discord.Embed(title=f"Results {first_rowid}..{last_rowid}")
+    for (_, name, value) in search_res:
+        embed.add_field(name=name, value=value, inline=False)
     return embed
 
 @client.event
