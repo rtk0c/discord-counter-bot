@@ -10,14 +10,11 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
-
-@client.event
-async def on_ready():
-  pass
+tree = discord.app_commands.CommandTree(client)
 
 VARNAME_REGEX = re.compile(r"[a-zA-Z0-9_]+")
 
-db = sqlite3.connect('bot.db', autocommit=False)
+db = sqlite3.connect('client.db', autocommit=False)
 db_cur = db.cursor()
 
 db_cur.executescript(r"""
@@ -46,9 +43,51 @@ def var_set(guild_id: int, varname: str, value: int) -> None:
     (guild_id, varname, value))
   db.commit()
 
+@tree.command(
+    name='list',
+    description='List all counters present on this server',
+    guild=None, # Global slash command
+)
+async def list(intr: discord.Interaction, search_term: str):
+    await intr.response.send_message(search_term)
+    return
+    current_page = 0
+    embed = generate_embed(current_page)
+    
+    message = await ctx.send(embed=embed)
+
+    while True:
+        try:
+            reaction, user = await client.wait_for('reaction_add', check=lambda r, u: u == ctx.author 
+and str(r.emoji) in ['<<', '>>'], timeout=60.0)
+        except asyncio.TimeoutError:
+            break
+
+        if str(reaction.emoji) == '<<':
+            current_page = max(current_page - 1, 0)
+        elif str(reaction.emoji) == '>>':
+            current_page = min(current_page + 1, len(numbers_list) // NUMBERS_PER_PAGE)
+
+        await message.edit(embed=generate_embed(current_page))
+        await reaction.remove(user)
+
+def generate_embed(page):
+    start_index = page * NUMBERS_PER_PAGE
+    end_index = start_index + NUMBERS_PER_PAGE
+
+    current_numbers = numbers_list[start_index:end_index]
+    embed = discord.Embed(title=f"Page {page + 1}", description="\n".join(map(str, 
+current_numbers)))
+    if page > 0:
+        embed.add_field(name="<<", value="Previous Page", inline=False)
+    if end_index < len(numbers_list):
+        embed.add_field(name=">>", value="Next Page", inline=False)
+
+    return embed
+
 @client.event
 async def on_message(message):
-  if message.author == client.user or message.author.bot:
+  if message.author == client.user or message.author.client:
     return
 
   if not message.guild:
@@ -75,6 +114,11 @@ async def on_message(message):
     new_value = delta
   var_set(guild_id, varname, new_value)
 
-  await message.reply(f"{varname} = {new_value}")
+  await message.reply(f"{varname} = {new_value}", mention_author=False)
+
+@client.event
+async def on_ready():
+  await tree.sync()
+  print('ready')
 
 client.run(client_token)
