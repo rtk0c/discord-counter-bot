@@ -44,13 +44,12 @@ def var_set(guild_id: int, varname: str, value: int) -> None:
   db.commit()
   print(f"var_set({guild_id}, '{varname}', {value})")
 
-SEARCH_ITEMS_PER_PAGE = 2
-def var_search(guild_id: int, start_rowid: int, varname_pattern: str) -> list[(str, int)]:
+def var_search(guild_id: int, varname_pattern: str) -> list[(str, int)]:
   db_cur.execute(
-    fr"SELECT rowid, name, value FROM variables WHERE rowid >= ? AND guild_id = ? AND name LIKE ? LIMIT {SEARCH_ITEMS_PER_PAGE}",
-    (start_rowid, guild_id, f"%{varname_pattern}%"))
+    fr"SELECT name, value FROM variables WHERE guild_id = ? AND name LIKE ?",
+    (guild_id, f"%{varname_pattern}%"))
   res = db_cur.fetchall()
-  print(f"var_search({guild_id}, {start_rowid}, '{varname_pattern}') = ", res)
+  print(f"var_search({guild_id}, '{varname_pattern}') = ", res)
   return res
 
 # https://gist.github.com/lykn/bac99b06d45ff8eed34c2220d86b6bf4
@@ -59,29 +58,43 @@ class ListCmdView(discord.ui.View):
     super().__init__(timeout=timeout)
     self.guild_id = guild_id
     self.search_term = search_term
-    self.next_rowid = 0
+    self.search_result = var_search(guild_id, search_term)
+    # The next entry from self.search_result that should be displayed to the user,
+    # because it was cut off due to Discord's message length limit
+    self.idx = 0
 
   def search_next(self):
-    res = var_search(self.guild_id, self.next_rowid, self.search_term)
+    content_footer = ['```']
+    content = []
+    content_len = sum((len(s) + 1 for s in content_footer))
+    def append_line(s):
+      nonlocal content_len, content
+      content_len += len(s) + 1 # Line break
+      # Discord's message length limit, minus a bit of room
+      # In testing, messages /right/ below 2000 seems to be flaky? Not sure why.
+      if content_len > 1950:
+        return False
+      content.append(s)
+      return True
+    append_line(f"Variables with name containing: {self.search_term}")
+    append_line('```')
 
-    content = [f"Variables with name containing: {self.search_term}"]
-    content.append('```')
-    for (_, name, value) in res:
-      content.append(f"{name} = {value}")
-    content.append('```')
+    while True:
+      # Until: no more search results
+      if self.idx >= len(self.search_result):
+        self.disable_buttons()
+        break
+      # Until: cannot fit into this message anymore
+      (name, value) = self.search_result[self.idx]
+      if not append_line(f"{name} = {value}"):
+        break
+      self.idx += 1
 
-    if len(res) < SEARCH_ITEMS_PER_PAGE:
-      content.append('(no more results)')
-      for item in self.children:
-        item.disabled = True
+    return '\n'.join(content + content_footer)
 
-    if len(res) != 0: # Defensive
-      (last_rowid, _, _) = res[-1]
-      self.next_rowid = last_rowid + 1
-    else:
-      print('FATAL: search_next() called when there is already no more search results')
-
-    return '\n'.join(content)
+  def disable_buttons(self):
+    for item in self.children:
+      item.disabled = True
 
   @discord.ui.button(label="Next page", style=discord.ButtonStyle.gray)
   async def next(self, intr: discord.Interaction, button: discord.ui.Button):
