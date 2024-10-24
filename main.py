@@ -14,7 +14,7 @@ tree = discord.app_commands.CommandTree(client)
 
 VARNAME_REGEX = re.compile(r"[a-zA-Z0-9_]+")
 
-db = sqlite3.connect('client.db', autocommit=False)
+db = sqlite3.connect('bot.db', autocommit=False)
 db_cur = db.cursor()
 
 db_cur.executescript(r"""
