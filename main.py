@@ -44,41 +44,49 @@ def var_set(guild_id: int, varname: str, value: int) -> None:
   db.commit()
   print(f"var_set({guild_id}, '{varname}', {value})")
 
+SEARCH_ITEMS_PER_PAGE = 2
 def var_search(guild_id: int, start_rowid: int, varname_pattern: str) -> list[(str, int)]:
   db_cur.execute(
-    r"SELECT rowid, name, value FROM variables WHERE rowid >= ? AND guild_id = ? AND name LIKE ? LIMIT 25",
+    fr"SELECT rowid, name, value FROM variables WHERE rowid >= ? AND guild_id = ? AND name LIKE ? LIMIT {SEARCH_ITEMS_PER_PAGE}",
     (start_rowid, guild_id, f"%{varname_pattern}%"))
   res = db_cur.fetchall()
   print(f"var_search({guild_id}, {start_rowid}, '{varname_pattern}') = ", res)
   return res
 
 # https://gist.github.com/lykn/bac99b06d45ff8eed34c2220d86b6bf4
-class ListButtons(discord.ui.View):
+class ListCmdView(discord.ui.View):
   def __init__(self, guild_id, search_term, *, timeout=180):
     super().__init__(timeout=timeout)
     self.guild_id = guild_id
     self.search_term = search_term
     self.next_rowid = 0
 
-  async def update_result(self, send_func, send_extra_args):
+  def search_next(self):
     res = var_search(self.guild_id, self.next_rowid, self.search_term)
-    if len(res) > 0:
+
+    content = [f"Variables with name containing: {self.search_term}"]
+    content.append('```')
+    for (_, name, value) in res:
+      content.append(f"{name} = {value}")
+    content.append('```')
+
+    if len(res) < SEARCH_ITEMS_PER_PAGE:
+      content.append('(no more results)')
+      for item in self.children:
+        item.disabled = True
+
+    if len(res) != 0: # Defensive
       (last_rowid, _, _) = res[-1]
       self.next_rowid = last_rowid + 1
-
-      content = [f"Variables with name containing: {self.search_term}"]
-      content.append('```')
-      for (_, name, value) in res:
-        content.append(f"{name} = {value}")
-      content.append('```')
-
-      await send_func(content='\n'.join(content), **send_extra_args)
     else:
-      await send_func(content='No more results', **send_extra_args)
+      print('FATAL: search_next() called when there is already no more search results')
+
+    return '\n'.join(content)
 
   @discord.ui.button(label="Next page", style=discord.ButtonStyle.gray)
   async def next(self, intr: discord.Interaction, button: discord.ui.Button):
-    await self.update_result(intr.response.edit_message, {})
+    # self.search_next() updates button states, pass view=self to send changes to client
+    await intr.response.edit_message(content=self.search_next(), view=self)
 
 @tree.command(
   name='list',
@@ -86,8 +94,8 @@ class ListButtons(discord.ui.View):
   guild=None, # Global slash command
 )
 async def list(intr: discord.Interaction, search_term: str):
-  view = ListButtons(intr.guild_id, search_term)
-  await view.update_result(intr.response.send_message, {'view': view, 'ephemeral': True})
+  view = ListCmdView(intr.guild_id, search_term)
+  await intr.response.send_message(content=view.search_next(), view=view, ephemeral=True)
 
 @client.event
 async def on_message(message):
