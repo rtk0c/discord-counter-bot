@@ -142,7 +142,7 @@ async def dec_autocomplete(intr: discord.Interaction, current: str):
 
 @client.event
 async def on_message(message):
-  if message.author == client.user or message.author.client:
+  if message.author == client.user or message.author.bot:
     return
 
   if not message.guild:
