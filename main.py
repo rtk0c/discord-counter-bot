@@ -52,25 +52,40 @@ def var_search(guild_id: int, start_rowid: int, varname_pattern: str) -> list[(s
   print(f"var_search({guild_id}, {start_rowid}, '{varname_pattern}') = ", res)
   return res
 
+# https://gist.github.com/lykn/bac99b06d45ff8eed34c2220d86b6bf4
+class ListButtons(discord.ui.View):
+  def __init__(self, guild_id, search_term, *, timeout=180):
+    super().__init__(timeout=timeout)
+    self.guild_id = guild_id
+    self.search_term = search_term
+    self.next_rowid = 0
+
+  async def update_result(self, send_func, send_extra_args):
+    res = var_search(self.guild_id, self.next_rowid, self.search_term)
+    if len(res) > 0:
+      (last_rowid, _, _) = res[-1]
+      self.next_rowid = last_rowid + 1
+
+      embed = discord.Embed(title=self.search_term)
+      for (_, name, value) in res:
+          embed.add_field(name=name, value=value, inline=False)
+
+      await send_func(embed=embed, **send_extra_args)
+    else:
+      await send_func(content='No search results', embed=None, **send_extra_args)
+
+  @discord.ui.button(label="Next page", style=discord.ButtonStyle.gray)
+  async def next(self, intr: discord.Interaction, button: discord.ui.Button):
+    await self.update_result(intr.response.edit_message, {})
+
 @tree.command(
-    name='list',
-    description='Search counters on this server matching the pattern.',
-    guild=None, # Global slash command
+  name='list',
+  description='Search counters on this server matching the pattern.',
+  guild=None, # Global slash command
 )
 async def list(intr: discord.Interaction, search_term: str):
-  search_res = var_search(intr.guild_id, 0, search_term)
-  if len(search_res) > 0:
-      await intr.response.send_message(embed=generate_embed(search_res, 0), ephemeral=True)
-  else:
-      await intr.response.send_message('No search results', ephemeral=True)
-
-def generate_embed(search_res, page: int):
-    (first_rowid, _, _)= search_res[0]
-    (last_rowid, _, _)= search_res[-1]
-    embed = discord.Embed(title=f"Results {first_rowid}..{last_rowid}")
-    for (_, name, value) in search_res:
-        embed.add_field(name=name, value=value, inline=False)
-    return embed
+  view = ListButtons(intr.guild_id, search_term)
+  await view.update_result(intr.response.send_message, {'view': view, 'ephemeral': True})
 
 @client.event
 async def on_message(message):
