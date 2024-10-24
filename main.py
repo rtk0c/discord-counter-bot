@@ -66,13 +66,15 @@ class ListButtons(discord.ui.View):
       (last_rowid, _, _) = res[-1]
       self.next_rowid = last_rowid + 1
 
-      embed = discord.Embed(title=self.search_term)
+      content = [f"Variables with name containing: {self.search_term}"]
+      content.append('```')
       for (_, name, value) in res:
-          embed.add_field(name=name, value=value, inline=False)
+        content.append(f"{name} = {value}")
+      content.append('```')
 
-      await send_func(embed=embed, **send_extra_args)
+      await send_func(content='\n'.join(content), **send_extra_args)
     else:
-      await send_func(content='No search results', embed=None, **send_extra_args)
+      await send_func(content='No more results', **send_extra_args)
 
   @discord.ui.button(label="Next page", style=discord.ButtonStyle.gray)
   async def next(self, intr: discord.Interaction, button: discord.ui.Button):
