@@ -44,10 +44,13 @@ def var_set(guild_id: int, varname: str, value: int) -> None:
   db.commit()
   print(f"var_set({guild_id}, '{varname}', {value})")
 
-def var_search(guild_id: int, varname_pattern: str) -> list[(str, int)]:
-  db_cur.execute(
-    fr"SELECT name, value FROM variables WHERE guild_id = ? AND name LIKE ?",
-    (guild_id, f"%{varname_pattern}%"))
+def var_search(guild_id: int, varname_pattern: str, *, limit: int = -1) -> list[(str, int)]:
+  query_string = (
+    fr"SELECT name, value FROM variables WHERE guild_id = ? AND name LIKE ? LIMIT {limit}"
+    if limit != -1
+    else r"SELECT name, value FROM variables WHERE guild_id = ? AND name LIKE ?"
+  )
+  db_cur.execute(query_string, (guild_id, f"%{varname_pattern}%"))
   res = db_cur.fetchall()
   print(f"var_search({guild_id}, '{varname_pattern}') = ", res)
   return res
@@ -101,14 +104,41 @@ class ListCmdView(discord.ui.View):
     # self.search_next() updates button states, pass view=self to send changes to client
     await intr.response.edit_message(content=self.search_next(), view=self)
 
-@tree.command(
-  name='list',
-  description='Search counters on this server matching the pattern.',
-  guild=None, # Global slash command
-)
+@tree.command(description='Search counters on this server matching the pattern.')
 async def list(intr: discord.Interaction, search_term: str):
   view = ListCmdView(intr.guild_id, search_term)
   await intr.response.send_message(content=view.search_next(), view=view, ephemeral=True)
+
+def update_variable(guild_id: int, varname: str, delta: int):
+  curr_value = var_get(guild_id, varname)
+  if curr_value:
+    new_value = curr_value + delta
+  else:
+    new_value = delta
+  var_set(guild_id, varname, new_value)
+  return new_value
+
+def autocomplete_varname(guild_id, current):
+  return [
+    discord.app_commands.Choice(name=v[0], value=v[0])
+    for v in var_search(guild_id, current, limit=5)
+  ]
+
+@tree.command(description='Increment a variable. Automatically define a new one if it does not exist yet.')
+async def inc(intr: discord.Interaction, varname: str):
+  new_value = update_variable(intr.guild_id, varname, 1)
+  await intr.response.send_message(content=f"{varname} = {new_value}")
+@inc.autocomplete('varname')
+async def inc_autocomplete(intr: discord.Interaction, current: str):
+  return autocomplete_varname(intr.guild_id, current)
+
+@tree.command(description='Decrement a variable. Automatically define a new one if it does not exist yet.')
+async def dec(intr: discord.Interaction, varname: str):
+  new_value = update_variable(intr.guild_id, varname, -1)
+  await intr.response.send_message(content=f"{varname} = {new_value}")
+@dec.autocomplete('varname')
+async def dec_autocomplete(intr: discord.Interaction, current: str):
+  return autocomplete_varname(intr.guild_id, current)
 
 @client.event
 async def on_message(message):
@@ -132,13 +162,7 @@ async def on_message(message):
   if not VARNAME_REGEX.fullmatch(varname):
     return
 
-  curr_value = var_get(guild_id, varname)
-  if curr_value:
-    new_value = curr_value + delta
-  else:
-    new_value = delta
-  var_set(guild_id, varname, new_value)
-
+  new_value = update_variable(guild_id, varname, delta)
   await message.reply(f"{varname} = {new_value}", mention_author=False)
 
 @client.event
